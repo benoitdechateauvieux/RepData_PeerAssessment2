@@ -1,0 +1,74 @@
+Tests d'affichage des catastrophes naturelles aux US (1950-2011) sur des cartes avec R
+========================================================
+
+## Data Processing
+Chargement des [données du U.S. National Oceanic and Atmospheric Administration](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2)
+
+```r
+#Loading data
+stormData <- read.csv("StormData.csv")
+stormData <- stormData[(!is.na(stormData$LATITUDE)) & (!is.na(stormData$LONGITUDE)), ]
+stormData <- stormData[(abs(stormData$LATITUDE)>0) & (abs(stormData$LONGITUDE)>0), ]
+stormData <- stormData[(stormData$FATALITIES+stormData$INJURIES)>0, ]
+```
+
+Les données sans infos géographiques sont éliminées, de même que les évènements n'ayant entrainé ni mort ni blessé.  
+On réduit ainsi le nombre d'observations de 902 297 à 12 775.
+
+## Resultats
+
+### Premier test: les cartes Google Map et la librairie ggmap
+
+```r
+#install.packages("ggmap")
+library(ggmap)
+map <- get_map(location = 'united states', zoom = 3, maptype='roadmap')
+ggmap(map) + 
+        geom_point(aes(x=abs(LONGITUDE)/-100, y=LATITUDE/100, size = (INJURIES+FATALITIES)), 
+                   data = stormData, alpha = .5)
+```
+
+![plot of chunk unnamed-chunk-2](figure/unnamed-chunk-2.png) 
+
+On observe un phénomène bizarre de cadrillage sur la carte, lié, je pense, à un bug de la librairie.
+
+### Deuxième test: les cartes R
+Pour réduire le dataset, j'aggrège les données par état.
+
+```r
+stormDataAgg <- aggregate(list(Impact=(stormData$INJURIES+stormData$FATALITIES)), list(Abbrev=stormData$STATE), sum)
+```
+
+Et j'affiche les données par état [voir ici](http://stackoverflow.com/questions/23003312/issue-when-adding-geom-text-in-ggplot2-when-plotting-ggmap)
+
+```r
+#install.packages("stringi")
+library(maps)
+library(stringi)
+library(plyr)
+data(state)
+states <- map_data("state")
+colnames(states)[5] <- "State"
+states$State <- stri_trans_totitle(states$State)
+df <- data.frame(state.x77,
+              State = state.name,
+              Abbrev = state.abb,
+              Region = state.region,
+              Division = state.division
+)
+
+df2 <- merge(states,df,by="State")
+df2 <- merge(df2,stormDataAgg,by="Abbrev")
+df2 <- df2[order(df2$order),]
+mid_range <- function(x) mean(range(x,na.rm=TRUE))
+centres <- ddply(df2, .(Abbrev),
+             colwise(mid_range,.(lat,long,Population)))
+
+ggplot(df2, aes(long,lat,fill=Impact)) + 
+        geom_polygon(aes(group=group)) +
+        guides(fill=guide_legend(title="Fatalities + Injuries")) +
+        coord_map()
+```
+
+![plot of chunk unnamed-chunk-4](figure/unnamed-chunk-4.png) 
+
